@@ -16,7 +16,7 @@ router.post('/verify-otp', validateBody(verifyOtpSchema), asyncHandler(authCtrl.
 router.post('/login', redisRateLimit({ max: 10, keyPrefix: 'auth' }), validateBody(loginSchema), asyncHandler(authCtrl.login));
 router.post('/google', redisRateLimit({ max: 10, keyPrefix: 'auth' }), validateBody(googleAuthSchema), asyncHandler(authCtrl.googleAuth));
 router.post('/refresh', asyncHandler(authCtrl.refresh));
-router.post('/logout', authenticate, asyncHandler(authCtrl.logout));
+router.post('/logout', asyncHandler(authCtrl.logout));
 router.post('/forgot-password', validateBody(forgotPasswordSchema), asyncHandler(authCtrl.forgotPassword));
 router.post('/reset-password', validateBody(resetPasswordSchema), asyncHandler(authCtrl.resetPassword));
 

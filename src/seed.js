@@ -219,8 +219,8 @@ async function seed() {
   await Product.insertMany(products);
 
   await Banner.insertMany([
-    { title: 'Summer Collection', image: 'https://placehold.co/1400x500/111/fff?text=Summer+Collection+2026', link: '/shop/women', position: 'hero', active: true, sortOrder: 1 },
-    { title: 'New Arrivals', image: 'https://placehold.co/1400x500/333/fff?text=New+Arrivals', link: '/shop/men', position: 'hero', active: true, sortOrder: 2 },
+    { title: 'Summer Collection', description: 'Fresh styles for the season — explore curated looks for every occasion.', image: 'https://placehold.co/1400x500/111/fff?text=Summer+Collection+2026', link: '/shop/women', position: 'hero', active: true, sortOrder: 1 },
+    { title: 'New Arrivals', description: 'Be the first to shop our latest drops in men\'s and women\'s fashion.', image: 'https://placehold.co/1400x500/333/fff?text=New+Arrivals', link: '/shop/men', position: 'hero', active: true, sortOrder: 2 },
     { title: 'Free Shipping', image: 'https://placehold.co/1400x200/000/fff?text=Free+Shipping+Above+Rs999', position: 'promo', active: true, sortOrder: 1 },
   ]);
 

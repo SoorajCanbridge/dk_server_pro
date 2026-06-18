@@ -10,7 +10,7 @@ export const checkoutSchema = z.object({
   billingAddress: addressSchema.optional(),
   gstin: z.string().optional(),
   paymentMethod: z.enum(['RAZORPAY', 'COD']),
-  couponCode: z.string().optional(),
+  couponCode: z.string().nullish(),
   notes: z.string().max(500).optional(),
 });
 

@@ -23,6 +23,24 @@ function getSessionId(req) {
   return req.headers['x-session-id'] || req.cookies?.sessionId;
 }
 
+async function persistRawCart(req, items, couponCode) {
+  if (req.user) {
+    const cart = await getUserCart(req.user._id);
+    cart.items = items;
+    if (couponCode !== undefined) cart.couponCode = couponCode;
+    await cart.save();
+    return;
+  }
+
+  const sessionId = getSessionId(req);
+  if (!sessionId) return;
+
+  const cart = await getGuestCart(sessionId);
+  cart.items = items;
+  if (couponCode !== undefined) cart.couponCode = couponCode;
+  await saveGuestCart(sessionId, cart);
+}
+
 export async function getCart(req, res) {
   let rawCart;
   if (req.user) {
@@ -38,7 +56,28 @@ export async function getCart(req, res) {
     return res.json({ success: true, data: { items: [], subtotal: 0, total: 0, couponCode: rawCart.couponCode } });
   }
 
-  const { items, subtotal, categoryIds } = await resolveCartItems(rawCart.items);
+  const { items, subtotal, categoryIds, removed, keptRawItems } = await resolveCartItems(rawCart.items, { strict: false });
+
+  if (removed.length) {
+    const couponCode = items.length ? rawCart.couponCode : null;
+    await persistRawCart(req, keptRawItems, couponCode);
+    rawCart.couponCode = couponCode;
+  }
+
+  if (!items.length) {
+    return res.json({
+      success: true,
+      data: {
+        items: [],
+        subtotal: 0,
+        discount: 0,
+        total: 0,
+        couponCode: null,
+        removed,
+      },
+    });
+  }
+
   let discount = 0;
 
   if (rawCart.couponCode) {
@@ -47,12 +86,20 @@ export async function getCart(req, res) {
       discount = result.discount;
     } catch {
       rawCart.couponCode = null;
+      await persistRawCart(req, keptRawItems, null);
     }
   }
 
   res.json({
     success: true,
-    data: { items, subtotal, discount, total: subtotal - discount, couponCode: rawCart.couponCode },
+    data: {
+      items,
+      subtotal,
+      discount,
+      total: subtotal - discount,
+      couponCode: rawCart.couponCode,
+      removed,
+    },
   });
 }
 
@@ -133,7 +180,12 @@ export async function applyCoupon(req, res) {
     rawCart = await getGuestCart(sessionId);
   }
 
-  const { subtotal, categoryIds } = await resolveCartItems(rawCart.items);
+  const { subtotal, categoryIds, removed, keptRawItems } = await resolveCartItems(rawCart.items, { strict: false });
+  if (removed.length) {
+    await persistRawCart(req, keptRawItems, rawCart.couponCode);
+  }
+  if (!keptRawItems.length) throw new AppError('Cart is empty', 400, 'EMPTY_CART');
+
   const { coupon, discount } = await validateCoupon(code, req.user?._id, subtotal, categoryIds);
 
   if (req.user) {

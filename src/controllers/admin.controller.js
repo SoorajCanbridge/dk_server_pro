@@ -10,7 +10,7 @@ import { Review } from '../models/Review.js';
 import { PAYMENT_STATUS, ORDER_STATUS, PRODUCT_STATUS, REVIEW_STATUS } from '../shared/index.js';
 import { AppError } from '../utils/errors.js';
 import { uploadFile, deleteImagesByUrls } from '../services/s3.service.js';
-import { restoreOrderStock } from '../services/inventory.service.js';
+import { restoreOrderStock, shouldRestoreOrderStock } from '../services/inventory.service.js';
 
 async function resolveBannerImage(bannerInput, file) {
   if (file) {
@@ -67,12 +67,19 @@ export async function getDashboard(req, res) {
 }
 
 export async function listProductsAdmin(req, res) {
-  const { search, status, category, page = 1, limit = 20 } = req.query;
+  const { search, status, category, view, page = 1, limit = 20 } = req.query;
   const filter = {};
-  if (status) filter.status = status;
+  if (view === 'archived') {
+    filter.status = 'ARCHIVED';
+  } else if (status) {
+    filter.status = status;
+  } else {
+    filter.status = { $ne: 'ARCHIVED' };
+  }
   if (category) filter.categoryId = category;
   if (search) filter.$or = [
     { title: { $regex: search, $options: 'i' } },
+    { productName: { $regex: search, $options: 'i' } },
     { 'variants.sku': { $regex: search, $options: 'i' } },
   ];
 
@@ -208,7 +215,10 @@ export async function adminCancelOrder(req, res) {
     throw new AppError('Order cannot be cancelled', 400, 'INVALID_STATUS');
   }
 
-  await restoreOrderStock(order.items, order._id, 'Order cancelled by admin');
+  if (shouldRestoreOrderStock(order)) {
+    await restoreOrderStock(order.items, order._id, 'Order cancelled by admin');
+    order.inventoryDeducted = false;
+  }
 
   order.status = ORDER_STATUS.CANCELLED;
   order.timeline.push({ status: ORDER_STATUS.CANCELLED, note: 'Cancelled by admin' });
@@ -392,7 +402,7 @@ export async function listCurationProducts(req, res) {
   const flag = getCurationFlag(req.params.type);
   const products = await Product.find({ status: PRODUCT_STATUS.ACTIVE })
     .populate('categoryId', 'name slug')
-    .select('title slug variants status isHotDeal')
+    .select('title productName slug variants status isHotDeal sellingPrice mrp')
     .sort({ title: 1 })
     .lean();
 
@@ -401,6 +411,41 @@ export async function listCurationProducts(req, res) {
   res.json({
     success: true,
     data: { products, selectedIds },
+  });
+}
+
+export async function addCurationProduct(req, res) {
+  const flag = getCurationFlag(req.params.type);
+  const product = await Product.findOne({
+    _id: req.params.productId,
+    status: PRODUCT_STATUS.ACTIVE,
+  }).populate('categoryId', 'name slug');
+
+  if (!product) throw new AppError('Active product not found', 404, 'NOT_FOUND');
+
+  product[flag] = true;
+  await product.save();
+
+  res.json({
+    success: true,
+    message: 'Product added to hot deals',
+    data: product,
+  });
+}
+
+export async function removeCurationProduct(req, res) {
+  const flag = getCurationFlag(req.params.type);
+  const product = await Product.findById(req.params.productId);
+
+  if (!product) throw new AppError('Product not found', 404, 'NOT_FOUND');
+
+  product[flag] = false;
+  await product.save();
+
+  res.json({
+    success: true,
+    message: 'Product removed from hot deals',
+    data: product,
   });
 }
 

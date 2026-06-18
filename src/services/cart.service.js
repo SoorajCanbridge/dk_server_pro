@@ -53,39 +53,83 @@ export async function mergeGuestCart(sessionId, userId) {
   return userCart;
 }
 
-export async function resolveCartItems(items) {
+export async function resolveCartItems(items, { strict = true } = {}) {
   const resolved = [];
+  const removed = [];
+  const keptRawItems = [];
   let subtotal = 0;
   const categoryIds = new Set();
 
   for (const item of items) {
     const product = await Product.findById(item.productId);
     if (!product || product.status !== PRODUCT_STATUS.ACTIVE) {
-      throw new AppError('Product no longer available', 400, 'PRODUCT_UNAVAILABLE');
+      if (strict) throw new AppError('Product no longer available', 400, 'PRODUCT_UNAVAILABLE');
+      removed.push({
+        variantSku: item.variantSku,
+        title: item.title || 'Product',
+        reason: 'unavailable',
+        message: 'This product is no longer available and was removed from your cart.',
+      });
+      continue;
     }
 
     const variant = product.variants.find((v) => v.sku === item.variantSku);
-    if (!variant) throw new AppError(`Variant ${item.variantSku} not found`, 400, 'VARIANT_NOT_FOUND');
-    if (variant.stock < item.quantity) {
-      throw new AppError(`Insufficient stock for ${product.title} (${variant.size})`, 400, 'INSUFFICIENT_STOCK');
+    if (!variant) {
+      if (strict) throw new AppError(`Variant ${item.variantSku} not found`, 400, 'VARIANT_NOT_FOUND');
+      removed.push({
+        variantSku: item.variantSku,
+        title: product.productName || product.title,
+        reason: 'variant_missing',
+        message: 'This variant is no longer available and was removed from your cart.',
+      });
+      continue;
     }
 
-    const lineTotal = variant.price * item.quantity;
+    let quantity = item.quantity;
+    if (variant.stock < quantity) {
+      if (strict) {
+        throw new AppError(`Insufficient stock for ${product.title} (${variant.size})`, 400, 'INSUFFICIENT_STOCK');
+      }
+      if (variant.stock <= 0) {
+        removed.push({
+          variantSku: item.variantSku,
+          title: product.productName || product.title,
+          reason: 'out_of_stock',
+          message: 'This item is out of stock and was removed from your cart.',
+        });
+        continue;
+      }
+      removed.push({
+        variantSku: item.variantSku,
+        title: product.productName || product.title,
+        reason: 'stock_adjusted',
+        message: `Quantity adjusted to ${variant.stock} (only ${variant.stock} left in stock).`,
+      });
+      quantity = variant.stock;
+    }
+
+    const lineTotal = variant.price * quantity;
     subtotal += lineTotal;
     categoryIds.add(product.categoryId.toString());
 
+    keptRawItems.push({
+      productId: product._id,
+      variantSku: variant.sku,
+      quantity,
+    });
+
     resolved.push({
       productId: product._id,
-      title: product.title,
+      title: product.productName || product.title,
       variantSku: variant.sku,
       color: variant.color,
       size: variant.size,
       price: variant.price,
-      quantity: item.quantity,
+      quantity,
       image: variant.images[0] || null,
       categoryId: product.categoryId,
     });
   }
 
-  return { items: resolved, subtotal, categoryIds: [...categoryIds] };
+  return { items: resolved, subtotal, categoryIds: [...categoryIds], removed, keptRawItems };
 }

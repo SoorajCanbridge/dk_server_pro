@@ -57,6 +57,7 @@ const orderSchema = new mongoose.Schema({
     paidAt: Date,
   },
   status: { type: String, enum: Object.values(ORDER_STATUS), default: ORDER_STATUS.PLACED },
+  inventoryDeducted: { type: Boolean, default: false },
   courier: String,
   trackingNumber: String,
   trackingUrl: String,

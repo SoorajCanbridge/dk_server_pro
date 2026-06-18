@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 
 const bannerSchema = new mongoose.Schema({
   title: { type: String, required: true },
+  description: { type: String, maxlength: 300 },
   image: { type: String, required: true },
   link: String,
   position: { type: String, enum: ['hero', 'promo', 'sidebar'], default: 'hero' },

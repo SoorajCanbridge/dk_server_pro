@@ -170,10 +170,29 @@ export async function refresh(req, res) {
 }
 
 export async function logout(req, res) {
-  if (req.user) {
-    await getRedis().del(`session:${req.user._id}`);
+  let userId = req.user?._id?.toString();
+
+  if (!userId) {
+    const token = req.cookies.refreshToken || req.body?.refreshToken;
+    if (token) {
+      try {
+        const decoded = verifyRefreshToken(token);
+        userId = decoded.userId;
+      } catch {
+        // Ignore invalid refresh token on logout
+      }
+    }
   }
-  res.clearCookie('refreshToken');
+
+  if (userId) {
+    await getRedis().del(`session:${userId}`);
+  }
+
+  res.clearCookie('refreshToken', {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+  });
   res.json({ success: true, message: 'Logged out' });
 }
 

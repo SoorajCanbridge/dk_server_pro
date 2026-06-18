@@ -8,6 +8,7 @@ export const reviewSchema = z.object({
 
 export const bannerSchema = z.object({
   title: z.string().min(1).max(200),
+  description: z.string().max(300).optional(),
   image: z.string().url(),
   link: z.string().optional(),
   position: z.enum(['hero', 'promo', 'sidebar']).default('hero'),

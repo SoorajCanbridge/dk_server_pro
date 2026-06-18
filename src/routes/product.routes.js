@@ -1,7 +1,7 @@
 import { Router } from 'express';
-import { paginatedListSchema, productQuerySchema } from '../shared/index.js';
+import { paginatedListSchema, productQuerySchema, productStatusUpdateSchema } from '../shared/index.js';
 import * as productCtrl from '../controllers/product.controller.js';
-import { validateQuery } from '../middleware/validate.js';
+import { validateQuery, validateBody } from '../middleware/validate.js';
 import { authenticate, requireRole } from '../middleware/auth.js';
 import { productImageUpload, parseProductMultipart } from '../middleware/productUpload.js';
 import { asyncHandler } from '../utils/errors.js';
@@ -18,6 +18,9 @@ router.get('/:slug', asyncHandler(productCtrl.getProduct));
 
 router.post('/', authenticate, requireRole(ROLES.ADMIN), productImageUpload, parseProductMultipart, asyncHandler(productCtrl.createProduct));
 router.patch('/:id', authenticate, requireRole(ROLES.ADMIN), productImageUpload, parseProductMultipart, asyncHandler(productCtrl.updateProduct));
+router.patch('/:id/status', authenticate, requireRole(ROLES.ADMIN), validateBody(productStatusUpdateSchema), asyncHandler(productCtrl.updateProductStatus));
+router.patch('/:id/archive', authenticate, requireRole(ROLES.ADMIN), asyncHandler(productCtrl.archiveProduct));
+router.patch('/:id/restore', authenticate, requireRole(ROLES.ADMIN), asyncHandler(productCtrl.restoreProduct));
 router.delete('/:id', authenticate, requireRole(ROLES.ADMIN), asyncHandler(productCtrl.deleteProduct));
 router.patch('/:id/inventory', authenticate, requireRole(ROLES.ADMIN), asyncHandler(productCtrl.adjustInventory));
 

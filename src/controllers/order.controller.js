@@ -14,7 +14,7 @@ import { config } from '../config/index.js';
 import { queueOrderConfirmation, queueShipmentEmail, queueInvoiceGeneration, queueReviewRequest } from '../services/queue.service.js';
 import { sendShipmentEmail, sendReviewRequestEmail } from '../services/email.service.js';
 import { AppError } from '../utils/errors.js';
-import { deductOrderStock, restoreOrderStock } from '../services/inventory.service.js';
+import { deductOrderStock, restoreOrderStock, shouldRestoreOrderStock } from '../services/inventory.service.js';
 import {
   ORDER_STATUS, PAYMENT_STATUS, PAYMENT_METHOD,
 } from '../shared/index.js';
@@ -47,6 +47,15 @@ function buildOrderResponse(order, { paymentRequired, razorpayOrderId, amount, g
     ...(guestAccessToken && { guestAccessToken }),
   };
   return payload;
+}
+
+async function clearCartAfterCheckout(req) {
+  if (req.user) {
+    await Cart.findOneAndUpdate({ userId: req.user._id }, { items: [], couponCode: null });
+    return;
+  }
+  const sessionId = getSessionId(req);
+  if (sessionId) await clearGuestCart(sessionId);
 }
 
 export async function createOrder(req, res) {
@@ -96,21 +105,19 @@ export async function createOrder(req, res) {
     total,
     payment: { method: paymentMethod, status: PAYMENT_STATUS.PENDING },
     status: ORDER_STATUS.PLACED,
+    inventoryDeducted: false,
     notes,
     timeline: [{ status: ORDER_STATUS.PLACED, note: 'Order placed' }],
   });
 
-  await deductOrderStock(items, order._id);
-
-  if (couponDoc && req.user) await applyCouponUsage(couponDoc._id, req.user._id);
-
-  if (req.user) {
-    await Cart.findOneAndUpdate({ userId: req.user._id }, { items: [], couponCode: null });
-  } else {
-    await clearGuestCart(getSessionId(req));
-  }
-
   if (paymentMethod === PAYMENT_METHOD.COD) {
+    await deductOrderStock(items, order._id);
+    order.inventoryDeducted = true;
+    await order.save();
+
+    if (couponDoc && req.user) await applyCouponUsage(couponDoc._id, req.user._id);
+    await clearCartAfterCheckout(req);
+
     order.payment.status = PAYMENT_STATUS.PENDING;
     order.status = ORDER_STATUS.CONFIRMED;
     order.timeline.push({ status: ORDER_STATUS.CONFIRMED, note: 'COD order confirmed' });
@@ -158,12 +165,29 @@ export async function verifyPayment(req, res) {
     throw new AppError('Invalid or missing order access token', 403, 'FORBIDDEN');
   }
 
+  if (order.payment.status === PAYMENT_STATUS.PAID) {
+    throw new AppError('Payment already verified', 400, 'ALREADY_PAID');
+  }
+
+  if (!order.inventoryDeducted) {
+    await deductOrderStock(order.items, order._id);
+    order.inventoryDeducted = true;
+  }
+
   order.payment.status = PAYMENT_STATUS.PAID;
   order.payment.razorpayPaymentId = razorpayPaymentId;
   order.payment.paidAt = new Date();
   order.status = ORDER_STATUS.CONFIRMED;
   order.timeline.push({ status: ORDER_STATUS.CONFIRMED, note: 'Payment received' });
   await order.save();
+
+  if (order.couponCode && req.user) {
+    const { Coupon } = await import('../models/Coupon.js');
+    const couponDoc = await Coupon.findOne({ code: order.couponCode.toUpperCase() });
+    if (couponDoc) await applyCouponUsage(couponDoc._id, req.user._id);
+  }
+
+  await clearCartAfterCheckout(req);
 
   const user = req.user;
   const email = user?.email || order.guestEmail;
@@ -289,16 +313,32 @@ export async function requestReturn(req, res) {
 }
 
 export async function cancelOrder(req, res) {
-  const filter = { _id: req.params.id };
-  if (req.user.role === 'customer') filter.userId = req.user._id;
-  const order = await Order.findOne(filter);
+  const { guestAccessToken } = req.body || {};
+  const order = await Order.findOne(orderIdFilter(req.params.id)).select('+guestAccessToken');
   if (!order) throw new AppError('Order not found', 404, 'NOT_FOUND');
+
+  if (req.user) {
+    if (order.userId && order.userId.toString() !== req.user._id.toString()) {
+      throw new AppError('Order not found', 404, 'NOT_FOUND');
+    }
+  } else if (order.userId) {
+    throw new AppError('Authentication required', 401, 'UNAUTHORIZED');
+  } else if (!guestAccessToken || guestAccessToken !== order.guestAccessToken) {
+    throw new AppError('Invalid or missing order access token', 403, 'FORBIDDEN');
+  }
 
   if (![ORDER_STATUS.PLACED, ORDER_STATUS.CONFIRMED].includes(order.status)) {
     throw new AppError('Order cannot be cancelled', 400, 'INVALID_STATUS');
   }
 
-  await restoreOrderStock(order.items, order._id, 'Order cancelled by customer');
+  if (order.payment.status === PAYMENT_STATUS.PAID && order.status === ORDER_STATUS.CONFIRMED) {
+    throw new AppError('Paid orders cannot be cancelled online. Contact support.', 400, 'INVALID_STATUS');
+  }
+
+  if (shouldRestoreOrderStock(order)) {
+    await restoreOrderStock(order.items, order._id, 'Order cancelled by customer');
+    order.inventoryDeducted = false;
+  }
 
   order.status = ORDER_STATUS.CANCELLED;
   order.timeline.push({ status: ORDER_STATUS.CANCELLED, note: 'Order cancelled' });

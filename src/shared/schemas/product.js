@@ -144,6 +144,10 @@ export const curationUpdateSchema = z.object({
   productIds: z.array(z.string()).default([]),
 });
 
+export const productStatusUpdateSchema = z.object({
+  status: z.enum(enumValues(PRODUCT_STATUS)),
+});
+
 export const productQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),

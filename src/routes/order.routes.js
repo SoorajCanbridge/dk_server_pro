@@ -18,6 +18,6 @@ router.get('/', authenticate, asyncHandler(orderCtrl.listOrders));
 router.get('/:id', optionalAuth, asyncHandler(orderCtrl.getOrder));
 router.post('/:id/return', authenticate, validateBody(returnRequestSchema), asyncHandler(orderCtrl.requestReturn));
 router.patch('/:id/shipping', authenticate, requireRole(ROLES.ADMIN), validateBody(updateShippingSchema), asyncHandler(orderCtrl.updateShipping));
-router.patch('/:id/cancel', authenticate, asyncHandler(orderCtrl.cancelOrder));
+router.patch('/:id/cancel', optionalAuth, asyncHandler(orderCtrl.cancelOrder));
 
 export default router;

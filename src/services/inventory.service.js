@@ -53,37 +53,75 @@ export async function adjustVariantStock({
   return product;
 }
 
-export async function deductOrderStock(items, orderId) {
-  for (const item of items) {
-    const result = await Product.findOneAndUpdate(
-      {
-        _id: item.productId,
-        'variants.sku': item.variantSku,
-        'variants.stock': { $gte: item.quantity },
+async function deductOneLine(item, orderId) {
+  const result = await Product.findOneAndUpdate(
+    {
+      _id: item.productId,
+      variants: {
+        $elemMatch: {
+          sku: item.variantSku,
+          stock: { $gte: item.quantity },
+        },
       },
-      { $inc: { 'variants.$.stock': -item.quantity, soldCount: item.quantity } },
-      { new: true }
-    );
+    },
+    {
+      $inc: {
+        'variants.$[v].stock': -item.quantity,
+        soldCount: item.quantity,
+      },
+    },
+    {
+      arrayFilters: [{ 'v.sku': item.variantSku, 'v.stock': { $gte: item.quantity } }],
+      new: true,
+    },
+  );
 
-    if (!result) {
-      throw new AppError(`Insufficient stock for ${item.variantSku}`, 400, 'INSUFFICIENT_STOCK');
+  if (!result) return false;
+
+  await logInventoryChange({
+    variantSku: item.variantSku,
+    productId: item.productId,
+    delta: -item.quantity,
+    reason: 'Order placed',
+    orderId,
+  });
+
+  return true;
+}
+
+export async function deductOrderStock(items, orderId) {
+  const deducted = [];
+
+  try {
+    for (const item of items) {
+      const ok = await deductOneLine(item, orderId);
+      if (!ok) {
+        throw new AppError(`Insufficient stock for ${item.variantSku}`, 400, 'INSUFFICIENT_STOCK');
+      }
+      deducted.push(item);
     }
-
-    await logInventoryChange({
-      variantSku: item.variantSku,
-      productId: item.productId,
-      delta: -item.quantity,
-      reason: 'Order placed',
-      orderId,
-    });
+  } catch (err) {
+    if (deducted.length) {
+      await restoreOrderStock(deducted, orderId, 'Rollback — stock deduction failed');
+    }
+    throw err;
   }
 }
 
 export async function restoreOrderStock(items, orderId, reason = 'Order cancelled') {
   for (const item of items) {
     await Product.updateOne(
-      { _id: item.productId, 'variants.sku': item.variantSku },
-      { $inc: { 'variants.$.stock': item.quantity, soldCount: -item.quantity } }
+      {
+        _id: item.productId,
+        variants: { $elemMatch: { sku: item.variantSku } },
+      },
+      {
+        $inc: {
+          'variants.$[v].stock': item.quantity,
+          soldCount: -item.quantity,
+        },
+      },
+      { arrayFilters: [{ 'v.sku': item.variantSku }] },
     );
 
     await logInventoryChange({
@@ -94,4 +132,11 @@ export async function restoreOrderStock(items, orderId, reason = 'Order cancelle
       orderId,
     });
   }
+}
+
+export function shouldRestoreOrderStock(order) {
+  if (order.inventoryDeducted === true) return true;
+  if (order.inventoryDeducted === false) return false;
+  // Legacy orders before inventoryDeducted existed deducted stock at creation
+  return true;
 }

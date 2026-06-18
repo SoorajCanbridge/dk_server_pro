@@ -22,6 +22,8 @@ router.patch('/reviews/:id/moderate', asyncHandler(reviewCtrl.moderateReview));
 router.delete('/reviews/:id', asyncHandler(reviewCtrl.deleteReview));
 
 router.get('/curations/:type', asyncHandler(adminCtrl.listCurationProducts));
+router.post('/curations/:type/products/:productId', asyncHandler(adminCtrl.addCurationProduct));
+router.delete('/curations/:type/products/:productId', asyncHandler(adminCtrl.removeCurationProduct));
 router.patch('/curations/:type', validateBody(curationUpdateSchema), asyncHandler(adminCtrl.updateCurationProducts));
 router.get('/orders', asyncHandler(adminCtrl.listOrdersAdmin));
 router.patch('/orders/:id/return', asyncHandler(adminCtrl.handleReturnRequest));

@@ -360,32 +360,59 @@ export async function updateProduct(req, res) {
 
 
 
-export async function deleteProduct(req, res) {
-
+export async function updateProductStatus(req, res) {
+  const { status } = req.validated;
   const product = await Product.findById(req.params.id);
-
   if (!product) throw new AppError('Product not found', 404, 'NOT_FOUND');
 
-
-
-  const imageUrls = collectProductImageUrls(product);
-
-  await deleteImagesByUrls(imageUrls);
-
-
-
-  product.status = PRODUCT_STATUS.ARCHIVED;
-  for (const variant of product.variants) {
-    variant.images = [];
-  }
+  product.status = status;
   await product.save();
-
-
-
   await getRedis().del('cache:products:featured');
 
-  res.json({ success: true, message: 'Product archived and images removed' });
+  res.json({ success: true, message: 'Product status updated', data: product });
+}
 
+export async function archiveProduct(req, res) {
+  const product = await Product.findById(req.params.id);
+  if (!product) throw new AppError('Product not found', 404, 'NOT_FOUND');
+  if (product.status === PRODUCT_STATUS.ARCHIVED) {
+    throw new AppError('Product is already archived', 400, 'ALREADY_ARCHIVED');
+  }
+
+  product.status = PRODUCT_STATUS.ARCHIVED;
+  await product.save();
+  await getRedis().del('cache:products:featured');
+
+  res.json({ success: true, message: 'Product archived', data: product });
+}
+
+export async function restoreProduct(req, res) {
+  const product = await Product.findById(req.params.id);
+  if (!product) throw new AppError('Product not found', 404, 'NOT_FOUND');
+  if (product.status !== PRODUCT_STATUS.ARCHIVED) {
+    throw new AppError('Only archived products can be restored', 400, 'NOT_ARCHIVED');
+  }
+
+  product.status = PRODUCT_STATUS.DRAFT;
+  await product.save();
+  await getRedis().del('cache:products:featured');
+
+  res.json({ success: true, message: 'Product restored as draft', data: product });
+}
+
+export async function deleteProduct(req, res) {
+  const product = await Product.findById(req.params.id);
+  if (!product) throw new AppError('Product not found', 404, 'NOT_FOUND');
+  if (product.status !== PRODUCT_STATUS.ARCHIVED) {
+    throw new AppError('Archive the product before permanent deletion', 400, 'NOT_ARCHIVED');
+  }
+
+  const imageUrls = collectProductImageUrls(product);
+  await deleteImagesByUrls(imageUrls);
+  await Product.findByIdAndDelete(req.params.id);
+  await getRedis().del('cache:products:featured');
+
+  res.json({ success: true, message: 'Product permanently deleted' });
 }
 
 
