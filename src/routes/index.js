@@ -10,6 +10,7 @@ import checkoutRoutes from './checkout.routes.js';
 import adminRoutes from './admin.routes.js';
 import * as adminCtrl from '../controllers/admin.controller.js';
 import * as configCtrl from '../controllers/config.controller.js';
+import { config } from '../config/index.js';
 import { asyncHandler } from '../utils/errors.js';
 import uploadRoutes from './upload.routes.js';
 import newsletterRoutes from './newsletter.routes.js';
@@ -33,7 +34,13 @@ router.use('/newsletter', newsletterRoutes);
 router.use('/webhooks', webhookRoutes);
 
 router.get('/health', (req, res) => {
-  res.json({ success: true, message: 'DK Clothing API is running' });
+  res.json({
+    success: true,
+    message: 'DK Clothing API is running',
+    data: {
+      googleClientId: config.google.clientId || '',
+    },
+  });
 });
 
 export default router;
