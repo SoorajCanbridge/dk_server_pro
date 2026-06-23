@@ -2,19 +2,23 @@ import multer from 'multer';
 import { z } from 'zod';
 import { categorySchema } from '../shared/index.js';
 import { AppError } from '../utils/errors.js';
+import { uploadLimits } from '../config/upload.js';
+import { wrapMulter } from './multerError.js';
 
 const categoryInputSchema = categorySchema.omit({ image: true }).extend({
   existingImage: z.string().url().optional(),
 });
 
-export const categoryImageUpload = multer({
+const categoryImageUploadMiddleware = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024, files: 1 },
+  limits: { fileSize: uploadLimits.categoryMaxBytes, files: 1 },
   fileFilter: (_req, file, cb) => {
     if (file.mimetype?.startsWith('image/')) cb(null, true);
     else cb(new Error('Only image files are allowed'));
   },
 }).single('image');
+
+export const categoryImageUpload = wrapMulter(categoryImageUploadMiddleware);
 
 export function parseCategoryMultipart(req, _res, next) {
   try {

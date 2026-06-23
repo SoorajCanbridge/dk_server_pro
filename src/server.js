@@ -4,12 +4,14 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import cookieParser from 'cookie-parser';
 import { config } from './config/index.js';
+import { uploadLimits } from './config/upload.js';
 import { connectDB } from './config/db.js';
 import { connectRedis } from './config/redis.js';
 import routes from './routes/index.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
 const app = express();
+const bodyLimit = `${uploadLimits.jsonMaxMb}mb`;
 
 app.use(helmet());
 app.use(cors({
@@ -27,8 +29,8 @@ app.use('/api/v1/webhooks/razorpay', express.raw({ type: 'application/json' }), 
   }
   next();
 });
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: bodyLimit }));
+app.use(express.urlencoded({ extended: true, limit: bodyLimit }));
 
 app.use('/api/v1', routes);
 

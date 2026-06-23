@@ -50,12 +50,12 @@ export const config = {
   mongodbUri: process.env.MONGODB_URI || 'mongodb://localhost:27017/dk_clothing',
   redis: buildRedisConfig(),
   jwt: {
-    secret: process.env.JWT_SECRET || 'dev-jwt-secret-change-in-production',
-    refreshSecret: process.env.JWT_REFRESH_SECRET || 'dev-refresh-secret-change-in-production',
+    secret: process.env.JWT_SECRET,
+    refreshSecret: process.env.JWT_REFRESH_SECRET,
     accessExpiry: process.env.JWT_ACCESS_EXPIRY || '15m',
     refreshExpiry: process.env.JWT_REFRESH_EXPIRY || '7d',
   },
-  clientUrl: process.env.CLIENT_URL || 'http://localhost:3000',
+  clientUrl: process.env.CLIENT_URL,
   google: {
     clientId: process.env.GOOGLE_CLIENT_ID || '',
   },
@@ -68,9 +68,9 @@ export const config = {
     accessKeyId: process.env.AWS_ACCESS_KEY_ID,
     secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
     bucket: process.env.AWS_S3_BUCKET,
-    region: process.env.AWS_REGION || 'ap-south-1',
+    region: process.env.AWS_REGION ,
     cloudfrontUrl: process.env.AWS_CLOUDFRONT_URL,
-    prefix: process.env.AWS_S3_PREFIX || 'dk-clothing',
+    prefix: process.env.AWS_S3_PREFIX ,
   },
   smtp: {
     host: process.env.SMTP_HOST,

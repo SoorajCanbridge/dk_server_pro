@@ -2,19 +2,23 @@ import multer from 'multer';
 import { z } from 'zod';
 import { bannerSchema } from '../shared/index.js';
 import { AppError } from '../utils/errors.js';
+import { uploadLimits } from '../config/upload.js';
+import { wrapMulter } from './multerError.js';
 
 const bannerInputSchema = bannerSchema.omit({ image: true }).extend({
   existingImage: z.string().url().optional(),
 });
 
-export const bannerImageUpload = multer({
+const bannerImageUploadMiddleware = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024, files: 1 },
+  limits: { fileSize: uploadLimits.bannerMaxBytes, files: 1 },
   fileFilter: (_req, file, cb) => {
     if (file.mimetype?.startsWith('image/')) cb(null, true);
     else cb(new Error('Only image files are allowed'));
   },
 }).single('image');
+
+export const bannerImageUpload = wrapMulter(bannerImageUploadMiddleware);
 
 export function parseBannerMultipart(req, _res, next) {
   try {
