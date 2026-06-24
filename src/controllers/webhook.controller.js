@@ -1,7 +1,13 @@
 import { Order } from '../models/Order.js';
 import { verifyWebhookSignature } from '../services/payment.service.js';
 import { PAYMENT_STATUS, ORDER_STATUS } from '../shared/index.js';
-import { queueOrderConfirmation, queueInvoiceGeneration } from '../services/queue.service.js';
+import { queueOrderConfirmation, queueInvoiceGeneration, queueNewOrderAdmin } from '../services/queue.service.js';
+import {
+  notifyOrderCustomer,
+  notifyAdmin,
+  sendOrderConfirmationEmail,
+  sendNewOrderAdminEmail,
+} from '../services/email.service.js';
 
 export async function razorpayWebhook(req, res) {
   const signature = req.headers['x-razorpay-signature'];
@@ -30,7 +36,10 @@ export async function razorpayWebhook(req, res) {
       const { User } = await import('../models/User.js');
       const user = order.userId ? await User.findById(order.userId) : null;
       const email = user?.email || order.guestEmail;
-      if (email) await queueOrderConfirmation(order._id, email);
+      if (email) {
+        await notifyOrderCustomer(order, queueOrderConfirmation, sendOrderConfirmationEmail);
+      }
+      await notifyAdmin(queueNewOrderAdmin, sendNewOrderAdminEmail, order._id);
       await queueInvoiceGeneration(order._id);
     }
   }

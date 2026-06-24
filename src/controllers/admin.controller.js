@@ -11,6 +11,21 @@ import { PAYMENT_STATUS, ORDER_STATUS, PRODUCT_STATUS, REVIEW_STATUS } from '../
 import { AppError } from '../utils/errors.js';
 import { uploadFile, deleteImagesByUrls } from '../services/s3.service.js';
 import { restoreOrderStock, shouldRestoreOrderStock } from '../services/inventory.service.js';
+import {
+  queueOrderCancelled,
+  queueReturnApproved,
+  queueReturnRejected,
+  queueRefundEmail,
+  queueCodPaymentConfirmed,
+} from '../services/queue.service.js';
+import {
+  sendOrderCancelledEmail,
+  sendReturnApprovedEmail,
+  sendReturnRejectedEmail,
+  sendRefundEmail,
+  sendCodPaymentConfirmedEmail,
+  notifyOrderCustomer,
+} from '../services/email.service.js';
 
 async function resolveBannerImage(bannerInput, file) {
   if (file) {
@@ -192,12 +207,23 @@ export async function handleReturnRequest(req, res) {
     order.returnRequest.status = 'APPROVED';
     order.status = ORDER_STATUS.RETURNED;
     order.timeline.push({ status: ORDER_STATUS.RETURNED, note: note || 'Return approved' });
+    await order.save();
+
+    await notifyOrderCustomer(order, queueReturnApproved, sendReturnApprovedEmail);
+    if (order.payment.status === PAYMENT_STATUS.PAID) {
+      order.payment.status = PAYMENT_STATUS.REFUNDED;
+      order.status = ORDER_STATUS.REFUNDED;
+      order.timeline.push({ status: ORDER_STATUS.REFUNDED, note: 'Refund initiated after return approval' });
+      await order.save();
+      await notifyOrderCustomer(order, queueRefundEmail, sendRefundEmail, order.total);
+    }
   } else {
     order.returnRequest.status = 'REJECTED';
     order.status = ORDER_STATUS.DELIVERED;
     order.timeline.push({ status: ORDER_STATUS.DELIVERED, note: note || 'Return rejected' });
+    await order.save();
+    await notifyOrderCustomer(order, queueReturnRejected, sendReturnRejectedEmail, note || '');
   }
-  await order.save();
   res.json({ success: true, data: order });
 }
 
@@ -210,7 +236,19 @@ export async function updateOrderPayment(req, res) {
   if (status === PAYMENT_STATUS.PAID) {
     order.payment.paidAt = new Date();
     order.timeline.push({ status: ORDER_STATUS.CONFIRMED, note: 'Payment marked as received (COD)' });
+    await order.save();
+    await notifyOrderCustomer(order, queueCodPaymentConfirmed, sendCodPaymentConfirmedEmail);
+    return res.json({ success: true, data: order });
   }
+
+  if (status === PAYMENT_STATUS.REFUNDED) {
+    order.status = ORDER_STATUS.REFUNDED;
+    order.timeline.push({ status: ORDER_STATUS.REFUNDED, note: 'Refund processed by admin' });
+    await order.save();
+    await notifyOrderCustomer(order, queueRefundEmail, sendRefundEmail, order.total);
+    return res.json({ success: true, data: order });
+  }
+
   await order.save();
   res.json({ success: true, data: order });
 }
@@ -230,6 +268,14 @@ export async function adminCancelOrder(req, res) {
   order.status = ORDER_STATUS.CANCELLED;
   order.timeline.push({ status: ORDER_STATUS.CANCELLED, note: 'Cancelled by admin' });
   await order.save();
+
+  await notifyOrderCustomer(
+    order,
+    queueOrderCancelled,
+    sendOrderCancelledEmail,
+    'Cancelled by our team. Contact support if you have questions.',
+  );
+
   res.json({ success: true, data: order });
 }
 

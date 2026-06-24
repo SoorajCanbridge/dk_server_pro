@@ -86,4 +86,5 @@ export const config = {
   defaultShippingRate: parseFloat(process.env.DEFAULT_SHIPPING_RATE || '99'),
   freeShippingAbove: parseFloat(process.env.FREE_SHIPPING_ABOVE || '999'),
   returnWindowDays: parseInt(process.env.RETURN_WINDOW_DAYS || '3', 10),
+  adminEmail: process.env.ADMIN_EMAIL?.trim() || process.env.SMTP_USER?.trim() || '',
 };

@@ -1,6 +1,28 @@
 import nodemailer from 'nodemailer';
 import { config } from '../config/index.js';
-import { buildOtpEmailHtml, buildPasswordResetEmailHtml } from './email-templates.js';
+import {
+  buildOtpEmailHtml,
+  buildPasswordResetEmailHtml,
+  buildOrderConfirmationEmailHtml,
+  buildOrderPlacedEmailHtml,
+  buildOrderPackedEmailHtml,
+  buildShipmentEmailHtml,
+  buildDeliveryEmailHtml,
+  buildReviewRequestEmailHtml,
+  buildOrderCancelledEmailHtml,
+  buildRefundEmailHtml,
+  buildReturnRequestedEmailHtml,
+  buildReturnApprovedEmailHtml,
+  buildReturnRejectedEmailHtml,
+  buildPaymentFailedEmailHtml,
+  buildCodPaymentConfirmedEmailHtml,
+  buildAbandonedCartEmailHtml,
+  buildNewsletterWelcomeEmailHtml,
+  buildNewOrderAdminEmailHtml,
+  buildReturnRequestAdminEmailHtml,
+  buildLowStockAlertEmailHtml,
+} from './email-templates.js';
+import { getOrderCustomerEmail, getOrderCustomerName } from '../utils/order-email.js';
 import { OTP_TTL_MINUTES } from '../utils/registration.js';
 
 let transporter = null;
@@ -14,7 +36,6 @@ function buildTransportOptions() {
     auth: user ? { user, pass } : undefined,
   };
 
-  // Gmail / Google Workspace SMTP (port 587 = STARTTLS)
   if (host?.includes('gmail.com') || host?.includes('googlemail.com')) {
     options.secure = port === 465;
     options.requireTLS = port === 587;
@@ -77,100 +98,6 @@ export async function sendOtpEmail(email, otp, name = '') {
   });
 }
 
-export async function sendOrderConfirmationEmail(order, userEmail) {
-  const items = order.items.map((i) =>
-    `<tr><td>${i.title} (${i.size}/${i.color})</td><td>${i.quantity}</td><td>₹${i.price * i.quantity}</td></tr>`
-  ).join('');
-
-  return sendEmail({
-    to: userEmail,
-    subject: `Order Confirmed — ${order.orderNumber}`,
-    html: `
-      <div style="font-family:sans-serif;max-width:600px;margin:0 auto">
-        <h2>Thank you for your order!</h2>
-        <p>Order <strong>${order.orderNumber}</strong> has been placed successfully.</p>
-        <table width="100%" cellpadding="8" style="border-collapse:collapse">
-          <tr style="background:#f5f5f5"><th align="left">Item</th><th>Qty</th><th>Amount</th></tr>
-          ${items}
-        </table>
-        <p><strong>Total: ₹${order.total}</strong></p>
-        <p>We'll notify you when your order ships.</p>
-      </div>
-    `,
-  });
-}
-
-export async function sendShipmentEmail(order, userEmail) {
-  return sendEmail({
-    to: userEmail,
-    subject: `Your order ${order.orderNumber} has shipped`,
-    html: `
-      <div style="font-family:sans-serif;max-width:480px;margin:0 auto">
-        <h2>Your order is on the way!</h2>
-        <p>Order <strong>${order.orderNumber}</strong> has been shipped.</p>
-        ${order.courier ? `<p>Courier: ${order.courier}</p>` : ''}
-        ${order.trackingNumber ? `<p>Tracking: ${order.trackingNumber}</p>` : ''}
-        ${order.trackingUrl ? `<p><a href="${order.trackingUrl}">Track your package</a></p>` : ''}
-      </div>
-    `,
-  });
-}
-
-export async function sendNewsletterWelcomeEmail(email) {
-  return sendEmail({
-    to: email,
-    subject: 'Welcome to DK Clothing',
-    html: `
-      <div style="font-family:sans-serif;max-width:480px;margin:0 auto">
-        <h2>You're on the list!</h2>
-        <p>Thanks for subscribing to DK Clothing. You'll be first to hear about new arrivals, exclusive deals, and style tips.</p>
-        <p><a href="${config.clientUrl}/shop">Shop the latest collection</a></p>
-      </div>
-    `,
-  });
-}
-
-export async function sendReviewRequestEmail(order, userEmail) {
-  const { Product } = await import('../models/Product.js');
-  const itemLinks = await Promise.all(order.items.map(async (i) => {
-    const p = await Product.findById(i.productId).select('slug');
-    const href = p?.slug
-      ? `${config.clientUrl}/product/${p.slug}?review=1#reviews`
-      : `${config.clientUrl}/account/orders`;
-    return `<li><a href="${href}">${i.title}</a></li>`;
-  }));
-  const items = itemLinks.join('');
-
-  return sendEmail({
-    to: userEmail,
-    subject: `How was your order ${order.orderNumber}?`,
-    html: `
-      <div style="font-family:sans-serif;max-width:600px;margin:0 auto">
-        <h2>Your order has been delivered</h2>
-        <p>We hope you love your purchase! Share your experience and help other shoppers:</p>
-        <ul>${items}</ul>
-        <p><a href="${config.clientUrl}/account/orders">View your orders</a></p>
-      </div>
-    `,
-  });
-}
-
-export async function sendAbandonedCartEmail(email, items) {
-  const itemList = items.map((i) => `<li>${i.title}</li>`).join('');
-  return sendEmail({
-    to: email,
-    subject: 'You left something in your cart — DK Clothing',
-    html: `
-      <div style="font-family:sans-serif;max-width:480px;margin:0 auto">
-        <h2>Don't miss out!</h2>
-        <p>Items waiting in your cart:</p>
-        <ul>${itemList}</ul>
-        <p><a href="${config.clientUrl}/cart">Complete your purchase</a></p>
-      </div>
-    `,
-  });
-}
-
 export async function sendPasswordResetEmail(email, otp) {
   const html = buildPasswordResetEmailHtml({ otp, expiryMinutes: OTP_TTL_MINUTES });
 
@@ -182,11 +109,201 @@ export async function sendPasswordResetEmail(email, otp) {
   });
 }
 
-export async function sendLowStockAlertEmail(adminEmail, products) {
-  const list = products.map((p) => `<li>${p.title} — SKU: ${p.sku} (${p.stock} left)</li>`).join('');
+export async function sendOrderConfirmationEmail(order, userEmail) {
+  const name = await getOrderCustomerName(order);
+  return sendEmail({
+    to: userEmail,
+    subject: `Thank you for your purchase — Order ${order.orderNumber}`,
+    html: buildOrderConfirmationEmailHtml(order, name),
+  });
+}
+
+export async function sendOrderPlacedEmail(order, userEmail) {
+  const name = await getOrderCustomerName(order);
+  return sendEmail({
+    to: userEmail,
+    subject: `Order received — ${order.orderNumber}`,
+    html: buildOrderPlacedEmailHtml(order, name),
+  });
+}
+
+export async function sendOrderPackedEmail(order, userEmail) {
+  const name = await getOrderCustomerName(order);
+  return sendEmail({
+    to: userEmail,
+    subject: `Order packed — ${order.orderNumber}`,
+    html: buildOrderPackedEmailHtml(order, name),
+  });
+}
+
+export async function sendShipmentEmail(order, userEmail) {
+  const name = await getOrderCustomerName(order);
+  return sendEmail({
+    to: userEmail,
+    subject: `Your order ${order.orderNumber} has shipped`,
+    html: buildShipmentEmailHtml(order, name),
+  });
+}
+
+export async function sendDeliveryEmail(order, userEmail) {
+  const name = await getOrderCustomerName(order);
+  return sendEmail({
+    to: userEmail,
+    subject: `Order delivered — ${order.orderNumber}`,
+    html: buildDeliveryEmailHtml(order, name),
+  });
+}
+
+export async function sendReviewRequestEmail(order, userEmail) {
+  const { Product } = await import('../models/Product.js');
+  const name = await getOrderCustomerName(order);
+  const itemLinks = await Promise.all(order.items.map(async (i) => {
+    const p = await Product.findById(i.productId).select('slug');
+    const href = p?.slug
+      ? `${config.clientUrl}/product/${p.slug}?review=1#reviews`
+      : `${config.clientUrl}/account/orders`;
+    return `<li><a href="${href}" style="color:#111111;">${i.title}</a></li>`;
+  }));
+
+  return sendEmail({
+    to: userEmail,
+    subject: `How was your order ${order.orderNumber}?`,
+    html: buildReviewRequestEmailHtml(order, itemLinks.join(''), name),
+  });
+}
+
+export async function sendOrderCancelledEmail(order, userEmail, reason = '') {
+  const name = await getOrderCustomerName(order);
+  return sendEmail({
+    to: userEmail,
+    subject: `Order cancelled — ${order.orderNumber}`,
+    html: buildOrderCancelledEmailHtml(order, name, reason),
+  });
+}
+
+export async function sendRefundEmail(order, userEmail, amount) {
+  const name = await getOrderCustomerName(order);
+  return sendEmail({
+    to: userEmail,
+    subject: `Refund processed — ${order.orderNumber}`,
+    html: buildRefundEmailHtml(order, name, amount),
+  });
+}
+
+export async function sendReturnRequestedEmail(order, userEmail) {
+  const name = await getOrderCustomerName(order);
+  return sendEmail({
+    to: userEmail,
+    subject: `Return request received — ${order.orderNumber}`,
+    html: buildReturnRequestedEmailHtml(order, name),
+  });
+}
+
+export async function sendReturnApprovedEmail(order, userEmail) {
+  const name = await getOrderCustomerName(order);
+  return sendEmail({
+    to: userEmail,
+    subject: `Return approved — ${order.orderNumber}`,
+    html: buildReturnApprovedEmailHtml(order, name),
+  });
+}
+
+export async function sendReturnRejectedEmail(order, userEmail, note = '') {
+  const name = await getOrderCustomerName(order);
+  return sendEmail({
+    to: userEmail,
+    subject: `Return request update — ${order.orderNumber}`,
+    html: buildReturnRejectedEmailHtml(order, name, note),
+  });
+}
+
+export async function sendPaymentFailedEmail(order, userEmail) {
+  const name = await getOrderCustomerName(order);
+  return sendEmail({
+    to: userEmail,
+    subject: `Payment failed — ${order.orderNumber}`,
+    html: buildPaymentFailedEmailHtml(order, name),
+  });
+}
+
+export async function sendCodPaymentConfirmedEmail(order, userEmail) {
+  const name = await getOrderCustomerName(order);
+  return sendEmail({
+    to: userEmail,
+    subject: `Payment received — ${order.orderNumber}`,
+    html: buildCodPaymentConfirmedEmailHtml(order, name),
+  });
+}
+
+export async function sendAbandonedCartEmail(email, items, customerName = '') {
+  return sendEmail({
+    to: email,
+    subject: 'You left something in your cart — DK Clothings',
+    html: buildAbandonedCartEmailHtml(items, customerName),
+  });
+}
+
+export async function sendNewsletterWelcomeEmail(email) {
+  return sendEmail({
+    to: email,
+    subject: 'Welcome to DK Clothings',
+    html: buildNewsletterWelcomeEmailHtml(),
+  });
+}
+
+export async function sendNewOrderAdminEmail(order) {
+  const adminEmail = config.adminEmail;
+  if (!adminEmail) return null;
+
   return sendEmail({
     to: adminEmail,
-    subject: 'Low Stock Alert — DK Clothing',
-    html: `<h2>Low Stock Alert</h2><ul>${list}</ul>`,
+    subject: `[New order] ${order.orderNumber} — ₹${order.total}`,
+    html: buildNewOrderAdminEmailHtml(order),
   });
+}
+
+export async function sendReturnRequestAdminEmail(order) {
+  const adminEmail = config.adminEmail;
+  if (!adminEmail) return null;
+
+  return sendEmail({
+    to: adminEmail,
+    subject: `[Return request] ${order.orderNumber}`,
+    html: buildReturnRequestAdminEmailHtml(order),
+  });
+}
+
+export async function sendLowStockAlertEmail(adminEmail, products) {
+  return sendEmail({
+    to: adminEmail,
+    subject: 'Low Stock Alert — DK Clothings',
+    html: buildLowStockAlertEmailHtml(products),
+  });
+}
+
+/** Try queue first; fall back to direct send when Redis/worker is unavailable. */
+export async function dispatchOrderEmail(queueFn, sendFn, orderId, email, ...extraArgs) {
+  try {
+    await queueFn(orderId, email, ...extraArgs);
+  } catch {
+    const { Order } = await import('../models/Order.js');
+    const order = await Order.findById(orderId);
+    if (order) await sendFn(order, email, ...extraArgs);
+  }
+}
+
+export async function notifyOrderCustomer(order, queueFn, sendFn, ...extraArgs) {
+  const email = await getOrderCustomerEmail(order);
+  if (!email) return;
+  await dispatchOrderEmail(queueFn, sendFn, order._id, email, ...extraArgs);
+}
+
+export async function notifyAdmin(queueFn, sendFn, orderId) {
+  try {
+    await queueFn(orderId);
+  } catch {
+    const { Order } = await import('../models/Order.js');
+    const order = await Order.findById(orderId);
+    if (order) await sendFn(order);
+  }
 }

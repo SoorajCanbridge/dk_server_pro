@@ -11,8 +11,34 @@ import { createRazorpayOrder, verifyRazorpaySignature } from '../services/paymen
 import { calculateGST } from '../utils/gst.js';
 import { generateOrderNumber } from '../utils/slug.js';
 import { config } from '../config/index.js';
-import { queueOrderConfirmation, queueShipmentEmail, queueInvoiceGeneration, queueReviewRequest } from '../services/queue.service.js';
-import { sendShipmentEmail, sendReviewRequestEmail } from '../services/email.service.js';
+import {
+  queueOrderConfirmation,
+  queueOrderPlaced,
+  queueOrderPacked,
+  queueShipmentEmail,
+  queueDeliveryEmail,
+  queueReviewRequest,
+  queueOrderCancelled,
+  queueReturnRequested,
+  queueReturnRequestAdmin,
+  queueNewOrderAdmin,
+  queueInvoiceGeneration,
+  cancelAbandonedCartForUser,
+} from '../services/queue.service.js';
+import {
+  sendOrderConfirmationEmail,
+  sendOrderPlacedEmail,
+  sendOrderPackedEmail,
+  sendShipmentEmail,
+  sendDeliveryEmail,
+  sendReviewRequestEmail,
+  sendOrderCancelledEmail,
+  sendReturnRequestedEmail,
+  notifyOrderCustomer,
+  notifyAdmin,
+  sendNewOrderAdminEmail,
+  sendReturnRequestAdminEmail,
+} from '../services/email.service.js';
 import { AppError } from '../utils/errors.js';
 import { deductOrderStock, restoreOrderStock, shouldRestoreOrderStock } from '../services/inventory.service.js';
 import {
@@ -52,6 +78,7 @@ function buildOrderResponse(order, { paymentRequired, razorpayOrderId, amount, g
 async function clearCartAfterCheckout(req) {
   if (req.user) {
     await Cart.findOneAndUpdate({ userId: req.user._id }, { items: [], couponCode: null });
+    await cancelAbandonedCartForUser(req.user._id);
     return;
   }
   const sessionId = getSessionId(req);
@@ -124,7 +151,10 @@ export async function createOrder(req, res) {
     await order.save();
 
     const email = req.user?.email || shippingAddress.email;
-    if (email) await queueOrderConfirmation(order._id, email);
+    if (email) {
+      await notifyOrderCustomer(order, queueOrderConfirmation, sendOrderConfirmationEmail);
+    }
+    await notifyAdmin(queueNewOrderAdmin, sendNewOrderAdminEmail, order._id);
     await queueInvoiceGeneration(order._id);
 
     return res.status(201).json({
@@ -136,6 +166,11 @@ export async function createOrder(req, res) {
   const razorpayOrder = await createRazorpayOrder(Math.round(total * 100), orderNumber);
   order.payment.razorpayOrderId = razorpayOrder.id;
   await order.save();
+
+  const email = req.user?.email || shippingAddress.email;
+  if (email) {
+    await notifyOrderCustomer(order, queueOrderPlaced, sendOrderPlacedEmail);
+  }
 
   res.status(201).json({
     success: true,
@@ -189,9 +224,8 @@ export async function verifyPayment(req, res) {
 
   await clearCartAfterCheckout(req);
 
-  const user = req.user;
-  const email = user?.email || order.guestEmail;
-  if (email) await queueOrderConfirmation(order._id, email);
+  await notifyOrderCustomer(order, queueOrderConfirmation, sendOrderConfirmationEmail);
+  await notifyAdmin(queueNewOrderAdmin, sendNewOrderAdminEmail, order._id);
   await queueInvoiceGeneration(order._id);
 
   res.json({ success: true, data: order });
@@ -241,7 +275,6 @@ export async function updateShipping(req, res) {
   if (!order) throw new AppError('Order not found', 404, 'NOT_FOUND');
 
   const { status, courier, trackingNumber, trackingUrl } = req.validated;
-  const wasShipped = order.status === ORDER_STATUS.SHIPPED;
   const previousStatus = order.status;
 
   if (status) {
@@ -254,30 +287,17 @@ export async function updateShipping(req, res) {
 
   await order.save();
 
-  if (status === ORDER_STATUS.SHIPPED && !wasShipped) {
-    const { User } = await import('../models/User.js');
-    const user = order.userId ? await User.findById(order.userId) : null;
-    const email = user?.email || order.guestEmail;
-    if (email) {
-      try {
-        await queueShipmentEmail(order._id, email);
-      } catch {
-        await sendShipmentEmail(order, email);
-      }
-    }
+  if (status === ORDER_STATUS.PACKED && previousStatus !== ORDER_STATUS.PACKED) {
+    await notifyOrderCustomer(order, queueOrderPacked, sendOrderPackedEmail);
+  }
+
+  if (status === ORDER_STATUS.SHIPPED && previousStatus !== ORDER_STATUS.SHIPPED) {
+    await notifyOrderCustomer(order, queueShipmentEmail, sendShipmentEmail);
   }
 
   if (status === ORDER_STATUS.DELIVERED && previousStatus !== ORDER_STATUS.DELIVERED) {
-    const { User } = await import('../models/User.js');
-    const user = order.userId ? await User.findById(order.userId) : null;
-    const email = user?.email || order.guestEmail;
-    if (email) {
-      try {
-        await queueReviewRequest(order._id, email);
-      } catch {
-        await sendReviewRequestEmail(order, email);
-      }
-    }
+    await notifyOrderCustomer(order, queueDeliveryEmail, sendDeliveryEmail);
+    await notifyOrderCustomer(order, queueReviewRequest, sendReviewRequestEmail);
   }
 
   res.json({ success: true, data: order });
@@ -308,6 +328,9 @@ export async function requestReturn(req, res) {
   order.status = ORDER_STATUS.RETURN_REQUESTED;
   order.timeline.push({ status: ORDER_STATUS.RETURN_REQUESTED, note: 'Return requested' });
   await order.save();
+
+  await notifyOrderCustomer(order, queueReturnRequested, sendReturnRequestedEmail);
+  await notifyAdmin(queueReturnRequestAdmin, sendReturnRequestAdminEmail, order._id);
 
   res.json({ success: true, data: enrichOrderReturnMeta(order.toObject()) });
 }
@@ -343,6 +366,13 @@ export async function cancelOrder(req, res) {
   order.status = ORDER_STATUS.CANCELLED;
   order.timeline.push({ status: ORDER_STATUS.CANCELLED, note: 'Order cancelled' });
   await order.save();
+
+  await notifyOrderCustomer(
+    order,
+    queueOrderCancelled,
+    sendOrderCancelledEmail,
+    'Cancelled by customer.',
+  );
 
   res.json({ success: true, data: order });
 }

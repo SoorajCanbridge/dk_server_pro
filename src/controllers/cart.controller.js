@@ -2,7 +2,7 @@ import {
   getGuestCart, saveGuestCart, getUserCart, resolveCartItems,
 } from '../services/cart.service.js';
 import { validateCoupon } from '../services/coupon.service.js';
-import { queueAbandonedCart } from '../services/queue.service.js';
+import { queueAbandonedCart, cancelAbandonedCartForUser } from '../services/queue.service.js';
 import { AppError } from '../utils/errors.js';
 
 async function scheduleAbandonedCartReminder(user, cartItems) {
@@ -12,7 +12,8 @@ async function scheduleAbandonedCartReminder(user, cartItems) {
     await queueAbandonedCart(
       user._id.toString(),
       user.email,
-      items.map((i) => ({ title: i.title })),
+      items.map((i) => ({ title: i.title, price: i.price })),
+      user.name,
     );
   } catch {
     // non-blocking
@@ -138,6 +139,7 @@ export async function updateCartItem(req, res) {
     if (quantity <= 0) cart.items = cart.items.filter((i) => i.variantSku !== variantSku);
     else item.quantity = quantity;
     await cart.save();
+    if (!cart.items.length) await cancelAbandonedCartForUser(req.user._id);
   } else {
     const sessionId = getSessionId(req);
     const cart = await getGuestCart(sessionId);
@@ -158,6 +160,7 @@ export async function removeFromCart(req, res) {
     const cart = await getUserCart(req.user._id);
     cart.items = cart.items.filter((i) => i.variantSku !== variantSku);
     await cart.save();
+    if (!cart.items.length) await cancelAbandonedCartForUser(req.user._id);
   } else {
     const sessionId = getSessionId(req);
     const cart = await getGuestCart(sessionId);
