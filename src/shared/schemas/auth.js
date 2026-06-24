@@ -2,13 +2,13 @@ import { z } from 'zod';
 
 export const registerSchema = z.object({
   name: z.string().min(2).max(100),
-  email: z.string().email(),
+  email: z.string().email().transform((value) => value.trim().toLowerCase()),
   password: z.string().min(8).max(128),
-  phone: z.string().regex(/^[6-9]\d{9}$/).optional(),
+  phone: z.string().regex(/^[6-9]\d{9}$/).optional().or(z.literal('')),
 });
 
 export const loginSchema = z.object({
-  email: z.string().email(),
+  email: z.string().email().transform((value) => value.trim().toLowerCase()),
   password: z.string().min(1),
 });
 
@@ -17,8 +17,12 @@ export const googleAuthSchema = z.object({
 });
 
 export const verifyOtpSchema = z.object({
-  email: z.string().email(),
-  otp: z.string().length(6),
+  email: z.string().email().transform((value) => value.trim().toLowerCase()),
+  otp: z.string().regex(/^\d{6}$/, 'OTP must be 6 digits'),
+});
+
+export const resendVerificationSchema = z.object({
+  email: z.string().email().transform((value) => value.trim().toLowerCase()),
 });
 
 export const forgotPasswordSchema = z.object({

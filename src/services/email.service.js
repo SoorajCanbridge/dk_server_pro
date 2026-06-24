@@ -1,18 +1,42 @@
 import nodemailer from 'nodemailer';
 import { config } from '../config/index.js';
+import { buildOtpEmailHtml, buildPasswordResetEmailHtml } from './email-templates.js';
+import { OTP_TTL_MINUTES } from '../utils/registration.js';
 
 let transporter = null;
 
+function buildTransportOptions() {
+  const { host, port, secure, user, pass } = config.smtp;
+  const options = {
+    host,
+    port,
+    secure,
+    auth: user ? { user, pass } : undefined,
+  };
+
+  // Gmail / Google Workspace SMTP (port 587 = STARTTLS)
+  if (host?.includes('gmail.com') || host?.includes('googlemail.com')) {
+    options.secure = port === 465;
+    options.requireTLS = port === 587;
+    options.tls = { minVersion: 'TLSv1.2' };
+  }
+
+  return options;
+}
+
 function getTransporter() {
   if (!transporter && config.smtp.host) {
-    transporter = nodemailer.createTransport({
-      host: config.smtp.host,
-      port: config.smtp.port,
-      secure: config.smtp.secure,
-      auth: config.smtp.user ? { user: config.smtp.user, pass: config.smtp.pass } : undefined,
-    });
+    transporter = nodemailer.createTransport(buildTransportOptions());
   }
   return transporter;
+}
+
+function formatEmailError(err) {
+  const message = err?.message || '';
+  if (message.includes('535') || message.includes('BadCredentials') || message.includes('Username and Password not accepted')) {
+    return 'Email server rejected the login. For Gmail, use an App Password (not your normal password) in SMTP_PASS.';
+  }
+  return message || 'Email delivery failed';
 }
 
 export async function sendEmail({ to, subject, html, text }) {
@@ -22,27 +46,34 @@ export async function sendEmail({ to, subject, html, text }) {
     return { messageId: 'dev-mode' };
   }
 
-  return transport.sendMail({
-    from: `"${config.smtp.fromName}" <${config.smtp.fromEmail}>`,
-    to,
-    subject,
-    html,
-    text: text || html.replace(/<[^>]*>/g, ''),
-  });
+  try {
+    return await transport.sendMail({
+      from: `"${config.smtp.fromName}" <${config.smtp.fromEmail}>`,
+      to,
+      subject,
+      html,
+      text: text || html.replace(/<[^>]*>/g, ''),
+    });
+  } catch (err) {
+    const friendly = formatEmailError(err);
+    console.error('[Email] Send failed:', friendly);
+    throw new Error(friendly);
+  }
 }
 
-export async function sendOtpEmail(email, otp) {
+export async function sendOtpEmail(email, otp, name = '') {
+  const html = buildOtpEmailHtml({
+    name,
+    otp,
+    purpose: 'complete your DK Clothings account registration',
+    expiryMinutes: OTP_TTL_MINUTES,
+  });
+
   return sendEmail({
     to: email,
-    subject: 'Verify your DK Clothing account',
-    html: `
-      <div style="font-family:sans-serif;max-width:480px;margin:0 auto">
-        <h2>DK Clothing</h2>
-        <p>Your verification code is:</p>
-        <h1 style="letter-spacing:8px;color:#111">${otp}</h1>
-        <p>This code expires in 5 minutes.</p>
-      </div>
-    `,
+    subject: `${otp} is your DK Clothings verification code`,
+    html,
+    text: `Your DK Clothings verification code is ${otp}. It expires in ${OTP_TTL_MINUTES} minutes.`,
   });
 }
 
@@ -141,16 +172,13 @@ export async function sendAbandonedCartEmail(email, items) {
 }
 
 export async function sendPasswordResetEmail(email, otp) {
+  const html = buildPasswordResetEmailHtml({ otp, expiryMinutes: OTP_TTL_MINUTES });
+
   return sendEmail({
     to: email,
-    subject: 'Reset your DK Clothing password',
-    html: `
-      <div style="font-family:sans-serif;max-width:480px;margin:0 auto">
-        <h2>Password Reset</h2>
-        <p>Your reset code is: <strong>${otp}</strong></p>
-        <p>Expires in 5 minutes.</p>
-      </div>
-    `,
+    subject: `${otp} is your DK Clothings password reset code`,
+    html,
+    text: `Your DK Clothings password reset code is ${otp}. It expires in ${OTP_TTL_MINUTES} minutes.`,
   });
 }
 

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import {
   registerSchema, loginSchema, googleAuthSchema, verifyOtpSchema, forgotPasswordSchema,
-  resetPasswordSchema, addressSchema, updateProfileSchema,
+  resetPasswordSchema, resendVerificationSchema, addressSchema, updateProfileSchema,
 } from '../shared/index.js';
 import * as authCtrl from '../controllers/auth.controller.js';
 import { validateBody } from '../middleware/validate.js';
@@ -13,6 +13,7 @@ const router = Router();
 
 router.post('/register', redisRateLimit({ max: 5, keyPrefix: 'auth' }), validateBody(registerSchema), asyncHandler(authCtrl.register));
 router.post('/verify-otp', validateBody(verifyOtpSchema), asyncHandler(authCtrl.verifyOtp));
+router.post('/resend-verification', redisRateLimit({ max: 5, keyPrefix: 'auth-resend' }), validateBody(resendVerificationSchema), asyncHandler(authCtrl.resendVerificationOtp));
 router.post('/login', redisRateLimit({ max: 10, keyPrefix: 'auth' }), validateBody(loginSchema), asyncHandler(authCtrl.login));
 router.post('/google', redisRateLimit({ max: 10, keyPrefix: 'auth' }), validateBody(googleAuthSchema), asyncHandler(authCtrl.googleAuth));
 router.post('/refresh', asyncHandler(authCtrl.refresh));

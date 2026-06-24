@@ -7,6 +7,7 @@ import { wrapMulter } from './multerError.js';
 
 const categoryInputSchema = categorySchema.omit({ image: true }).extend({
   existingImage: z.string().url().optional(),
+  previousImage: z.string().url().optional(),
 });
 
 const categoryImageUploadMiddleware = multer({

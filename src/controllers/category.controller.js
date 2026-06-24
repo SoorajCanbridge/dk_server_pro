@@ -17,6 +17,13 @@ async function resolveCategoryImage(categoryInput, file) {
   return undefined;
 }
 
+async function deleteReplacedImage(existingUrl, nextUrl, previousUrl) {
+  const oldUrl = previousUrl || existingUrl;
+  if (oldUrl && nextUrl && oldUrl !== nextUrl) {
+    await deleteImagesByUrls([oldUrl]);
+  }
+}
+
 export async function listCategories(req, res) {
   const filter = {};
   if (req.query.gender) filter.gender = req.query.gender;
@@ -48,7 +55,7 @@ export async function getCategoryProducts(req, res) {
 }
 
 export async function createCategory(req, res) {
-  const { existingImage: _existing, ...data } = req.categoryInput;
+  const { existingImage: _existing, previousImage: _previous, ...data } = req.categoryInput;
   const slug = data.slug || makeSlug(data.name);
   const image = await resolveCategoryImage(req.categoryInput, req.file);
   const category = await Category.create({ ...data, slug, image });
@@ -59,11 +66,11 @@ export async function updateCategory(req, res) {
   const existing = await Category.findById(req.params.id);
   if (!existing) throw new AppError('Category not found', 404, 'NOT_FOUND');
 
-  const { existingImage: _existing, ...data } = req.categoryInput;
+  const { existingImage, previousImage, ...data } = req.categoryInput;
   const image = await resolveCategoryImage(req.categoryInput, req.file);
 
-  if (existing.image && image && existing.image !== image) {
-    await deleteImagesByUrls([existing.image]);
+  if (image !== undefined) {
+    await deleteReplacedImage(existing.image, image, previousImage);
   }
 
   const category = await Category.findByIdAndUpdate(

@@ -22,6 +22,13 @@ async function resolveBannerImage(bannerInput, file) {
   throw new AppError('Banner image is required', 400, 'VALIDATION_ERROR');
 }
 
+async function deleteReplacedImage(existingUrl, nextUrl, previousUrl) {
+  const oldUrl = previousUrl || existingUrl;
+  if (oldUrl && nextUrl && oldUrl !== nextUrl) {
+    await deleteImagesByUrls([oldUrl]);
+  }
+}
+
 export async function getDashboard(req, res) {
   const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
@@ -314,7 +321,7 @@ export async function deleteCoupon(req, res) {
 }
 
 export async function createBanner(req, res) {
-  const { existingImage: _existing, ...data } = req.bannerInput;
+  const { existingImage: _existing, previousImage: _previous, ...data } = req.bannerInput;
   const image = await resolveBannerImage(req.bannerInput, req.file);
   const banner = await Banner.create({ ...data, image });
   res.status(201).json({ success: true, data: banner });
@@ -329,12 +336,10 @@ export async function updateBanner(req, res) {
   const existing = await Banner.findById(req.params.id);
   if (!existing) throw new AppError('Banner not found', 404, 'NOT_FOUND');
 
-  const { existingImage, ...data } = req.bannerInput;
+  const { existingImage, previousImage, ...data } = req.bannerInput;
   const image = await resolveBannerImage(req.bannerInput, req.file);
 
-  if (existing.image && existing.image !== image) {
-    await deleteImagesByUrls([existing.image]);
-  }
+  await deleteReplacedImage(existing.image, image, previousImage);
 
   const banner = await Banner.findByIdAndUpdate(
     req.params.id,
