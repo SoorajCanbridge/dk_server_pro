@@ -1,4 +1,4 @@
-import { S3Client, PutObjectCommand, DeleteObjectsCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, DeleteObjectsCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
@@ -236,32 +236,35 @@ export async function getPresignedUploadUrl({ folder, filename, contentType }) {
 
 
 
-export async function uploadBuffer(key, buffer, contentType) {
-
+export async function uploadBuffer(key, buffer, contentType, { isPublic = true } = {}) {
   const client = getS3();
-
   if (!client) return null;
 
-
-
   await client.send(new PutObjectCommand({
-
     Bucket: config.aws.bucket,
-
     Key: key,
-
     Body: buffer,
-
     ContentType: contentType,
-
-    ACL: 'public-read',
-
+    ...(isPublic ? { ACL: 'public-read' } : {}),
   }));
 
+  return isPublic ? toPublicUrl(key) : key;
+}
 
+export async function getObjectBuffer(key) {
+  const client = getS3();
+  if (!client || !config.aws.bucket || !key) return null;
 
-  return toPublicUrl(key);
-
+  try {
+    const response = await client.send(new GetObjectCommand({
+      Bucket: config.aws.bucket,
+      Key: key,
+    }));
+    const bytes = await response.Body.transformToByteArray();
+    return Buffer.from(bytes);
+  } catch {
+    return null;
+  }
 }
 
 

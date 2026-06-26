@@ -63,6 +63,7 @@ const orderSchema = new mongoose.Schema({
   trackingUrl: String,
   notes: String,
   invoiceUrl: String,
+  invoiceKey: String,
   timeline: [timelineSchema],
   returnRequest: {
     reason: String,

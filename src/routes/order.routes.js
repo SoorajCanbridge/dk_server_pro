@@ -15,6 +15,7 @@ router.get('/track/:id', asyncHandler(orderCtrl.trackOrder));
 router.post('/', optionalAuth, redisRateLimit({ max: 5, keyPrefix: 'checkout' }), validateBody(checkoutSchema), asyncHandler(orderCtrl.createOrder));
 router.post('/verify-payment', optionalAuth, validateBody(verifyPaymentSchema), asyncHandler(orderCtrl.verifyPayment));
 router.get('/', authenticate, asyncHandler(orderCtrl.listOrders));
+router.get('/:id/invoice', optionalAuth, asyncHandler(orderCtrl.downloadInvoice));
 router.get('/:id', optionalAuth, asyncHandler(orderCtrl.getOrder));
 router.post('/:id/return', authenticate, validateBody(returnRequestSchema), asyncHandler(orderCtrl.requestReturn));
 router.patch('/:id/shipping', authenticate, requireRole(ROLES.ADMIN), validateBody(updateShippingSchema), asyncHandler(orderCtrl.updateShipping));

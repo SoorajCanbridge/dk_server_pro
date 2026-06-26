@@ -4,6 +4,8 @@ import { Order } from '../models/Order.js';
 import { Cart } from '../models/Cart.js';
 import { getGuestCart, getUserCart, resolveCartItems, clearGuestCart } from '../services/cart.service.js';
 import { assertOrderAccess } from '../utils/order-access.js';
+import { sanitizeOrderForClient } from '../utils/order-response.js';
+import { buildInvoicePdfBuffer, generateAndSaveInvoice } from '../services/invoice.service.js';
 import { enrichOrderReturnMeta, canRequestReturn } from '../utils/order-return.js';
 import { validateCoupon, applyCouponUsage } from '../services/coupon.service.js';
 import { getShippingRate } from '../services/shipping.service.js';
@@ -67,7 +69,7 @@ function orderIdFilter(id) {
 
 function buildOrderResponse(order, { paymentRequired, razorpayOrderId, amount, guestAccessToken }) {
   const payload = {
-    order,
+    order: sanitizeOrderForClient(order),
     paymentRequired,
     ...(razorpayOrderId && { razorpayOrderId, amount, currency: 'INR' }),
     ...(guestAccessToken && { guestAccessToken }),
@@ -228,13 +230,13 @@ export async function verifyPayment(req, res) {
   await notifyAdmin(queueNewOrderAdmin, sendNewOrderAdminEmail, order._id);
   await queueInvoiceGeneration(order._id);
 
-  res.json({ success: true, data: order });
+  res.json({ success: true, data: sanitizeOrderForClient(order) });
 }
 
 export async function listOrders(req, res) {
   const filter = req.user.role === 'customer' ? { userId: req.user._id } : {};
   const orders = await Order.find(filter).sort({ createdAt: -1 }).limit(50);
-  const data = orders.map((o) => enrichOrderReturnMeta(o.toObject()));
+  const data = orders.map((o) => enrichOrderReturnMeta(sanitizeOrderForClient(o)));
   res.json({ success: true, data });
 }
 
@@ -244,8 +246,7 @@ export async function getOrder(req, res) {
 
   assertOrderAccess(req, order);
 
-  const data = order.toObject();
-  delete data.guestAccessToken;
+  const data = sanitizeOrderForClient(order);
 
   if (data.items?.length) {
     const { Product } = await import('../models/Product.js');
@@ -264,10 +265,57 @@ export async function getOrder(req, res) {
 }
 
 export async function trackOrder(req, res) {
-  const order = await Order.findOne({ orderNumber: req.params.id })
-    .select('orderNumber status timeline courier trackingNumber trackingUrl createdAt');
+  const orderNumber = req.params.id?.trim()?.toUpperCase();
+  if (!orderNumber) throw new AppError('Order number is required', 400, 'VALIDATION');
+
+  const order = await Order.findOne({ orderNumber })
+    .select('orderNumber status timeline courier trackingNumber trackingUrl createdAt updatedAt items shippingAddress.city shippingAddress.state returnRequest.status')
+    .lean();
   if (!order) throw new AppError('Order not found', 404, 'NOT_FOUND');
-  res.json({ success: true, data: order });
+
+  res.json({
+    success: true,
+    data: {
+      orderNumber: order.orderNumber,
+      status: order.status,
+      timeline: order.timeline,
+      courier: order.courier,
+      trackingNumber: order.trackingNumber,
+      trackingUrl: order.trackingUrl,
+      createdAt: order.createdAt,
+      updatedAt: order.updatedAt,
+      destination: order.shippingAddress?.city && order.shippingAddress?.state
+        ? `${order.shippingAddress.city}, ${order.shippingAddress.state}`
+        : null,
+      returnStatus: order.returnRequest?.status || null,
+      items: (order.items || []).map((item) => ({
+        title: item.title,
+        image: item.image,
+        quantity: item.quantity,
+        size: item.size,
+        color: item.color,
+      })),
+    },
+  });
+}
+
+export async function downloadInvoice(req, res) {
+  const order = await Order.findOne(orderIdFilter(req.params.id)).select('+guestAccessToken');
+  if (!order) throw new AppError('Order not found', 404, 'NOT_FOUND');
+
+  assertOrderAccess(req, order);
+
+  const buffer = await buildInvoicePdfBuffer(order);
+
+  generateAndSaveInvoice(order._id).catch((err) => {
+    console.error('[Invoice] Background save failed:', err.message);
+  });
+
+  const filename = `invoice-${order.orderNumber}.pdf`;
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.send(buffer);
 }
 
 export async function updateShipping(req, res) {
@@ -300,7 +348,7 @@ export async function updateShipping(req, res) {
     await notifyOrderCustomer(order, queueReviewRequest, sendReviewRequestEmail);
   }
 
-  res.json({ success: true, data: order });
+  res.json({ success: true, data: sanitizeOrderForClient(order) });
 }
 
 export async function requestReturn(req, res) {
@@ -332,7 +380,7 @@ export async function requestReturn(req, res) {
   await notifyOrderCustomer(order, queueReturnRequested, sendReturnRequestedEmail);
   await notifyAdmin(queueReturnRequestAdmin, sendReturnRequestAdminEmail, order._id);
 
-  res.json({ success: true, data: enrichOrderReturnMeta(order.toObject()) });
+  res.json({ success: true, data: enrichOrderReturnMeta(sanitizeOrderForClient(order)) });
 }
 
 export async function cancelOrder(req, res) {
@@ -374,5 +422,5 @@ export async function cancelOrder(req, res) {
     'Cancelled by customer.',
   );
 
-  res.json({ success: true, data: order });
+  res.json({ success: true, data: sanitizeOrderForClient(order) });
 }

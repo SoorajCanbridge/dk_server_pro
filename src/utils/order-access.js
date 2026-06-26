@@ -8,7 +8,7 @@ export function getGuestOrderToken(req) {
 export function assertOrderAccess(req, order) {
   if (req.user) {
     if (req.user.role !== ROLES.CUSTOMER) return;
-    if (order.userId && order.userId.toString() === req.user._id.toString()) return;
+    if (order.userId?.toString() === req.user._id.toString()) return;
     throw new AppError('Order not found', 404, 'NOT_FOUND');
   }
 

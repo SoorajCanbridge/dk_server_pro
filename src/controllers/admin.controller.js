@@ -9,6 +9,7 @@ import { getSetting, setSetting } from '../models/Settings.js';
 import { Review } from '../models/Review.js';
 import { PAYMENT_STATUS, ORDER_STATUS, PRODUCT_STATUS, REVIEW_STATUS } from '../shared/index.js';
 import { AppError } from '../utils/errors.js';
+import { sanitizeOrderForClient } from '../utils/order-response.js';
 import { uploadFile, deleteImagesByUrls } from '../services/s3.service.js';
 import { restoreOrderStock, shouldRestoreOrderStock } from '../services/inventory.service.js';
 import {
@@ -145,7 +146,7 @@ export async function listOrdersAdmin(req, res) {
 
   res.json({
     success: true,
-    data: orders,
+    data: orders.map((order) => sanitizeOrderForClient(order)),
     pagination: { page: parseInt(page, 10), limit: parseInt(limit, 10), total, pages: Math.ceil(total / parseInt(limit, 10)) },
   });
 }
@@ -224,7 +225,7 @@ export async function handleReturnRequest(req, res) {
     await order.save();
     await notifyOrderCustomer(order, queueReturnRejected, sendReturnRejectedEmail, note || '');
   }
-  res.json({ success: true, data: order });
+  res.json({ success: true, data: sanitizeOrderForClient(order) });
 }
 
 export async function updateOrderPayment(req, res) {
@@ -238,7 +239,7 @@ export async function updateOrderPayment(req, res) {
     order.timeline.push({ status: ORDER_STATUS.CONFIRMED, note: 'Payment marked as received (COD)' });
     await order.save();
     await notifyOrderCustomer(order, queueCodPaymentConfirmed, sendCodPaymentConfirmedEmail);
-    return res.json({ success: true, data: order });
+    return res.json({ success: true, data: sanitizeOrderForClient(order) });
   }
 
   if (status === PAYMENT_STATUS.REFUNDED) {
@@ -246,11 +247,11 @@ export async function updateOrderPayment(req, res) {
     order.timeline.push({ status: ORDER_STATUS.REFUNDED, note: 'Refund processed by admin' });
     await order.save();
     await notifyOrderCustomer(order, queueRefundEmail, sendRefundEmail, order.total);
-    return res.json({ success: true, data: order });
+    return res.json({ success: true, data: sanitizeOrderForClient(order) });
   }
 
   await order.save();
-  res.json({ success: true, data: order });
+  res.json({ success: true, data: sanitizeOrderForClient(order) });
 }
 
 export async function adminCancelOrder(req, res) {
@@ -276,7 +277,7 @@ export async function adminCancelOrder(req, res) {
     'Cancelled by our team. Contact support if you have questions.',
   );
 
-  res.json({ success: true, data: order });
+  res.json({ success: true, data: sanitizeOrderForClient(order) });
 }
 
 export async function listInventoryStock(req, res) {

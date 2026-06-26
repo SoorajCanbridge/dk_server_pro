@@ -87,4 +87,16 @@ export const config = {
   freeShippingAbove: parseFloat(process.env.FREE_SHIPPING_ABOVE || '999'),
   returnWindowDays: parseInt(process.env.RETURN_WINDOW_DAYS || '3', 10),
   adminEmail: process.env.ADMIN_EMAIL?.trim() || process.env.SMTP_USER?.trim() || '',
+  store: {
+    name: process.env.STORE_NAME?.trim() || process.env.SMTP_FROM_NAME?.trim() || 'DK Clothings',
+    tagline: process.env.STORE_TAGLINE?.trim() || "Let's Celebrate your elegance",
+    address: process.env.STORE_ADDRESS?.trim() || '',
+    city: process.env.STORE_CITY?.trim() || '',
+    state: process.env.STORE_STATE?.trim() || '',
+    pincode: process.env.STORE_PINCODE?.trim() || '',
+    gstin: process.env.STORE_GSTIN?.trim() || '',
+    phone: process.env.STORE_PHONE?.trim() || '',
+    email: process.env.STORE_EMAIL?.trim() || process.env.SMTP_FROM_EMAIL?.trim() || '',
+    website: process.env.CLIENT_URL?.trim() || 'https://www.dkclothings.com',
+  },
 };
